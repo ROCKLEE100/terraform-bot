@@ -17,6 +17,7 @@ from starlette.responses import RedirectResponse, StreamingResponse
 import httpx
 import zipfile
 import io
+import terraform_utils as tf_utils
 
 # ======================
 # Load Environment
@@ -37,6 +38,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Define State
 # ======================
 class GraphState(TypedDict):
+    thread_id: str
     messages: List
     terraform_config: str
     retries: int
@@ -54,6 +56,9 @@ class GraphState(TypedDict):
     extracted_instance_type: str
     extracted_resource_type: str
     intent: str  # DEPLOYMENT, CONSULTATION, GENERAL
+    plan_output: str
+    cost_estimate: str
+    apply_output: str
 
 
 # ======================
@@ -373,6 +378,66 @@ def security_review_agent(state: GraphState) -> GraphState:
 
 
 # ======================
+# AGENT: Plan Terraform
+# ======================
+def plan_agent(state: GraphState) -> GraphState:
+    thread_id = state.get("thread_id", "default") # We need to ensure thread_id is in state or passed via config
+    # Note: thread_id is usually in config, but we can infer or pass it. 
+    # For now, let's assume we can get it from the supervisor or context. 
+    # Actually, LangGraph state doesn't have thread_id by default unless we put it there.
+    # We will add thread_id to initial_state in start_chat.
+    
+    cwd = f"/tmp/terraform-bot/{thread_id}"
+    terraform_files = parse_json_robustly(state["terraform_config"])
+    
+    try:
+        log_to_file(f"[plan_agent] Setting up workspace in {cwd}")
+        tf_utils.write_terraform_files(cwd, terraform_files)
+        
+        # Setup GCS Backend
+        project_id = os.getenv("PROJECT_ID", "terraform-482108")
+        tf_utils.setup_gcs_backend(cwd, project_id, thread_id)
+        
+        log_to_file("[plan_agent] Init...")
+        tf_utils.terraform_init(cwd)
+        
+        log_to_file("[plan_agent] Planning...")
+        plan = tf_utils.terraform_plan(cwd)
+        
+        return {**state, "plan_output": plan}
+    except Exception as e:
+        log_to_file(f"[Error] plan_agent failed: {e}")
+        return {**state, "plan_output": f"Plan failed: {str(e)}"}
+
+# ======================
+# AGENT: Cost Estimation
+# ======================
+def cost_agent(state: GraphState) -> GraphState:
+    thread_id = state.get("thread_id", "default")
+    cwd = f"/tmp/terraform-bot/{thread_id}"
+    
+    try:
+        log_to_file("[cost_agent] Estimating cost...")
+        cost = tf_utils.estimate_cost(cwd)
+        return {**state, "cost_estimate": cost}
+    except Exception as e:
+        return {**state, "cost_estimate": f"Cost estimation failed: {str(e)}"}
+
+# ======================
+# AGENT: Apply Terraform
+# ======================
+def apply_agent(state: GraphState) -> GraphState:
+    thread_id = state.get("thread_id", "default")
+    cwd = f"/tmp/terraform-bot/{thread_id}"
+    
+    try:
+        log_to_file("[apply_agent] Applying changes...")
+        output = tf_utils.terraform_apply(cwd)
+        return {**state, "apply_output": output}
+    except Exception as e:
+        return {**state, "apply_output": f"Apply failed: {str(e)}"}
+
+# ======================
 # AGENT: Human Approval
 # ======================
 def approve_tf(state: GraphState) -> GraphState:
@@ -482,8 +547,26 @@ def supervisor_node(state: GraphState) -> GraphState:
         if state.get("security_action") == "fix":
             return { **state, "next_action": "revise" }
 
-        # Otherwise (LOW/NONE or user ignored HIGH) -> ask for approval
+        # Otherwise (LOW/NONE or user ignored HIGH) -> proceed to Plan
+        # return { **state, "next_action": "approve" } # OLD
+        
+    # STEP 5: Plan
+    if not state.get("plan_output"):
+        return { **state, "next_action": "plan" }
+
+    # STEP 6: Cost
+    if not state.get("cost_estimate"):
+        return { **state, "next_action": "cost" }
+
+    # STEP 7: Approve
+    if approve == "":
         return { **state, "next_action": "approve" }
+
+    # STEP 8: User approved -> Apply
+    if approve == "approved":
+        if not state.get("apply_output"):
+            return { **state, "next_action": "apply" }
+        return { **state, "next_action": "end" }
 
     # STEP 5: User approved -> end
     if approve == "approved":
@@ -514,7 +597,12 @@ graph.add_node("wait_for_input", wait_for_input)
 graph.add_node("generate_tf", generate_tf)
 graph.add_node("validate_tf", validate_tf)
 graph.add_node("security_scan", security_scan_agent)
+graph.add_node("validate_tf", validate_tf)
+graph.add_node("security_scan", security_scan_agent)
 graph.add_node("security_review", security_review_agent)
+graph.add_node("plan_agent", plan_agent)
+graph.add_node("cost_agent", cost_agent)
+graph.add_node("apply_agent", apply_agent)
 
 graph.add_node("approve_tf", approve_tf)
 graph.add_node("revise_tf", revise_tf)
@@ -558,7 +646,12 @@ graph.add_conditional_edges(
         "generate": "generate_tf",
         "validate": "validate_tf",
         "security_scan": "security_scan",
+        "security_scan": "security_scan",
         "security_review": "security_review",
+        "plan": "plan_agent",
+        "cost": "cost_agent",
+        "apply": "apply_agent",
+        "revise": "revise_tf",
         "revise": "revise_tf",
         "approve": "approve_tf",
         "end": END
@@ -570,6 +663,9 @@ graph.add_edge("generate_tf", "supervisor")
 graph.add_edge("validate_tf", "supervisor")
 graph.add_edge("security_scan", "supervisor")
 graph.add_edge("security_review", "supervisor")
+graph.add_edge("plan_agent", "supervisor")
+graph.add_edge("cost_agent", "supervisor")
+graph.add_edge("apply_agent", "supervisor")
 graph.add_edge("approve_tf", "supervisor")
 graph.add_edge("revise_tf", "supervisor")
 
@@ -689,7 +785,12 @@ async def start_chat(req: ChatRequest):
         "extracted_instance_type": "",
         "extracted_instance_type": "",
         "extracted_resource_type": "",
-        "intent": ""
+        "extracted_resource_type": "",
+        "intent": "",
+        "plan_output": "",
+        "cost_estimate": "",
+        "apply_output": "",
+        "thread_id": thread_id
     }
     
     # Run graph in background thread to avoid blocking
