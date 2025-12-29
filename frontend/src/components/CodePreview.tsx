@@ -20,9 +20,11 @@ export const CodePreview: React.FC<CodePreviewProps> = ({ files, threadId }) => 
         setTimeout(() => setCopied(false), 2000);
     };
 
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
     const handleDownload = () => {
         if (!threadId) return;
-        window.location.href = `http://localhost:8000/chat/${threadId}/download`;
+        window.location.href = `${API_URL}/chat/${threadId}/download`;
     };
 
     if (!files || Object.keys(files).length === 0) return null;
