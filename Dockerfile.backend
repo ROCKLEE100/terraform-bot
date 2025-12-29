@@ -6,10 +6,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Terraform
-RUN apt-get update && apt-get install -y gnupg software-properties-common curl unzip \
-    && curl -fsSL https://apt.releases.hashicorp.com/gpg | apt-key add - \
-    && apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
-    && apt-get update && apt-get install -y terraform
+# Install Terraform
+RUN apt-get update && apt-get install -y curl unzip && \
+    curl -LO https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip && \
+    unzip terraform_1.9.0_linux_amd64.zip && \
+    mv terraform /usr/local/bin/ && \
+    rm terraform_1.9.0_linux_amd64.zip
 
 # Install Infracost
 RUN curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
