@@ -585,7 +585,7 @@ async def get_me(request: Request):
 @app.get("/logout")
 async def logout(request: Request):
     request.session.pop("user", None)
-    return RedirectResponse("http://localhost:5173")
+    return RedirectResponse(FRONTEND_URL)
 
 class ChatRequest(BaseModel):
     message: str
