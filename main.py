@@ -53,7 +53,7 @@ class GraphState(TypedDict):
     extracted_region: str
     extracted_instance_type: str
     extracted_resource_type: str
-                          
+    intent: str  # DEPLOYMENT, CONSULTATION, GENERAL
 
 
 # ======================
@@ -69,6 +69,61 @@ llm = ChatGroq(
     temperature=0,
     groq_api_key=api_key
 )
+
+# ======================
+# AGENT: Intent Classifier
+# ======================
+def intent_classifier(state: GraphState) -> GraphState:
+    log_to_file(f"\n[intent_classifier] Analyzing intent...")
+    try:
+        last_msg = state["messages"][-1].content
+        response = llm.invoke([
+            SystemMessage(content="""
+You are an intent classifier for a cloud infrastructure bot.
+Classify the user's message into one of these categories:
+
+1. DEPLOYMENT: User wants to create, deploy, or set up infrastructure (e.g., "Deploy a VM", "I need an S3 bucket", "Setup a server").
+2. CONSULTATION: User is asking for advice, best practices, or recommendations (e.g., "What instance type is best?", "How should I secure my DB?", "AWS vs GCP?").
+3. GENERAL: Greetings, chitchat, or unclear input (e.g., "Hello", "Thanks").
+
+Return ONLY the category name.
+"""),
+            HumanMessage(content=last_msg)
+        ])
+        intent = response.content.strip().upper()
+        # Fallback for safety
+        if intent not in ["DEPLOYMENT", "CONSULTATION", "GENERAL"]:
+            intent = "GENERAL"
+            
+        log_to_file(f"[intent_classifier] Detected intent: {intent}")
+        return {**state, "intent": intent}
+    except Exception as e:
+        log_to_file(f"[Error] intent_classifier failed: {e}")
+        return {**state, "intent": "GENERAL"}
+
+# ======================
+# AGENT: Consultant
+# ======================
+def consultant_agent(state: GraphState) -> GraphState:
+    log_to_file(f"\n[consultant_agent] Providing advice...")
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content="""
+You are an expert Cloud Architect. The user is asking for advice.
+Provide a professional, concise recommendation.
+After your advice, ask if they would like to proceed with a specific deployment based on your suggestion.
+"""),
+            ] + state["messages"]
+        )
+        return {
+            **state,
+            "messages": state["messages"] + [response],
+            "next_action": "wait_for_input" # Wait for user to confirm or ask more
+        }
+    except Exception as e:
+        log_to_file(f"[Error] consultant_agent failed: {e}")
+        return {**state, "next_action": "end"}
 
 # ======================
 # AGENT: Understand Request
@@ -90,9 +145,10 @@ Extract the following fields into a JSON object:
 - resource_type: (e.g., S3 bucket, VPC, EC2 instance)
 
 IMPORTANT:
-1. Only include values that have been EXPLICITLY mentioned by the user in any of their messages.
-2. If a value is not mentioned yet, use an empty string "".
-3. Return ONLY the JSON object. No other text.
+1. Be robust to TYPOS (e.g., "Googel" -> "GCP", "Amazn" -> "AWS", "t2micro" -> "t2.micro").
+2. Only include values that have been EXPLICITLY mentioned or clearly implied by the user.
+3. If a value is not mentioned yet, use an empty string "".
+4. Return ONLY the JSON object. No other text.
 
 Format:
 {
@@ -447,6 +503,9 @@ def supervisor_node(state: GraphState) -> GraphState:
 graph = StateGraph(GraphState)
 
 # Add nodes
+# Add nodes
+graph.add_node("intent_classifier", intent_classifier)
+graph.add_node("consultant", consultant_agent)
 graph.add_node("understand_request", understand_request)
 graph.add_node("supervisor", supervisor_node)
 graph.add_node("missing_info", missing_info_agent)
@@ -461,7 +520,21 @@ graph.add_node("approve_tf", approve_tf)
 graph.add_node("revise_tf", revise_tf)
 
 # Entry
-graph.add_edge(START, "understand_request")
+graph.add_edge(START, "intent_classifier")
+
+# Intent Routing
+graph.add_conditional_edges(
+    "intent_classifier",
+    lambda state: state.get("intent", "GENERAL"),
+    {
+        "DEPLOYMENT": "understand_request",
+        "CONSULTATION": "consultant",
+        "GENERAL": "understand_request" # Default to understand for now, or could just chat
+    }
+)
+
+# Consultant -> Wait
+graph.add_edge("consultant", "wait_for_input")
 
 # understand → missing_info (always check)
 graph.add_edge("understand_request", "missing_info")
@@ -473,8 +546,8 @@ graph.add_edge("missing_info", "supervisor")
 # ask_user_info → wait_for_input
 graph.add_edge("ask_user_info", "wait_for_input")
 
-# wait_for_input → understand_request (loop back after answer)
-graph.add_edge("wait_for_input", "understand_request")
+# wait_for_input -> intent_classifier (loop back to re-evaluate intent of new input)
+graph.add_edge("wait_for_input", "intent_classifier")
 
 # supervisor dynamic routing
 graph.add_conditional_edges(
@@ -614,7 +687,9 @@ async def start_chat(req: ChatRequest):
         "extracted_provider": "",
         "extracted_region": "",
         "extracted_instance_type": "",
-        "extracted_resource_type": ""
+        "extracted_instance_type": "",
+        "extracted_resource_type": "",
+        "intent": ""
     }
     
     # Run graph in background thread to avoid blocking
