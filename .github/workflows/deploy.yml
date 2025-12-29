@@ -53,8 +53,8 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars="GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }},SESSION_SECRET=${{ secrets.SESSION_SECRET }}"
-          
+            --set-env-vars="GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }},SESSION_SECRET=${{ secrets.SESSION_SECRET }},INFRACOST_API_KEY=${{ secrets.INFRACOST_API_KEY }}"
+
           BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} --region ${{ env.REGION }} --project ${{ env.PROJECT_ID }} --format 'value(status.url)')
           echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
           echo "Backend deployed at: $BACKEND_URL"
@@ -80,7 +80,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --platform managed \
             --allow-unauthenticated
-          
+
           FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} --region ${{ env.REGION }} --project ${{ env.PROJECT_ID }} --format 'value(status.url)')
           echo "url=$FRONTEND_URL" >> $GITHUB_OUTPUT
           echo "Frontend deployed at: $FRONTEND_URL"
@@ -96,4 +96,3 @@ jobs:
         run: |
           echo "Backend URL: $(gcloud run services describe ${{ env.BACKEND_SERVICE }} --region ${{ env.REGION }} --project ${{ env.PROJECT_ID }} --format 'value(status.url)')"
           echo "Frontend URL: $(gcloud run services describe ${{ env.FRONTEND_SERVICE }} --region ${{ env.REGION }} --project ${{ env.PROJECT_ID }} --format 'value(status.url)')"
-
