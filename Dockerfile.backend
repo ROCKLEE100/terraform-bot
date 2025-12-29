@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y gnupg software-properties-common curl u
 RUN curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
 
 COPY main.py .
+COPY terraform_utils.py .
 
 
 EXPOSE 8000
