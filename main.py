@@ -420,7 +420,15 @@ def cost_agent(state: GraphState) -> GraphState:
     try:
         log_to_file("[cost_agent] Estimating cost...")
         cost = tf_utils.estimate_cost(cwd)
-        return {**state, "cost_estimate": cost}
+        
+        # Ask user for approval
+        msg = "I have generated the plan and cost estimate. Would you like to apply these changes to the cloud and archive them to GCS?"
+        
+        return {
+            **state, 
+            "cost_estimate": cost,
+            "messages": state["messages"] + [AIMessage(content=msg)]
+        }
     except Exception as e:
         return {**state, "cost_estimate": f"Cost estimation failed: {str(e)}"}
 
@@ -442,6 +450,46 @@ def apply_agent(state: GraphState) -> GraphState:
         return {**state, "apply_output": output + "\n\n" + upload_msg}
     except Exception as e:
         return {**state, "apply_output": f"Apply failed: {str(e)}"}
+
+# ======================
+# AGENT: Check Approval Intent
+# ======================
+def check_approval_intent(state: GraphState) -> GraphState:
+    messages = state.get("messages", [])
+    last_msg = messages[-1].content if messages else ""
+    
+    print(f"[check_approval_intent] Checking intent for: {last_msg}")
+    
+    try:
+        response = llm.invoke([
+            SystemMessage(content="""
+You are an intent classifier for a Terraform approval workflow.
+The user has been asked: "Would you like to apply these changes?"
+
+Classify the user's response into one of these categories:
+- APPROVE: User says "yes", "go ahead", "apply", "looks good", etc.
+- REVISE: User says "no", "change X", "wait", "fix Y", or asks a question.
+- OTHER: Anything else that doesn't fit.
+
+Return ONLY the category name.
+"""),
+            HumanMessage(content=last_msg)
+        ])
+        
+        intent = response.content.strip().upper()
+        print(f"[check_approval_intent] Intent: {intent}")
+        
+        if "APPROVE" in intent:
+            return {**state, "approve_result": "approved"}
+        elif "REVISE" in intent:
+            return {**state, "approve_result": "revise"}
+        else:
+            # Default to revise/chat if unclear
+            return {**state, "approve_result": "revise"}
+            
+    except Exception as e:
+        print(f"[check_approval_intent] Error: {e}")
+        return {**state, "approve_result": "revise"}
 
 # ======================
 # AGENT: Human Approval
@@ -607,6 +655,7 @@ try:
     graph.add_node("plan_agent", plan_agent)
     graph.add_node("cost_agent", cost_agent)
     graph.add_node("apply_agent", apply_agent)
+    graph.add_node("check_approval_intent", check_approval_intent)
 except ValueError as e:
     print(f"[Graph Error] Node addition failed: {e}")
 
@@ -636,6 +685,9 @@ graph.add_edge("understand_request", "missing_info")
 
 # missing_info → supervisor
 graph.add_edge("missing_info", "supervisor")
+
+# check_approval_intent -> supervisor
+graph.add_edge("check_approval_intent", "supervisor")
 
 
 # ask_user_info → wait_for_input
@@ -884,8 +936,8 @@ async def send_message(thread_id: str, req: ChatRequest):
     updates = {
         "messages": state.values["messages"] + [new_msg],
         "approve_result": "revise" if current_action == "approve" else state.values.get("approve_result", ""),
-        # If we were done, we need to restart the cycle, likely to revise or generate
-        "next_action": "revise" # Force revision/re-evaluation
+        # If waiting for approval, check intent. Otherwise force revise.
+        "next_action": "check_approval_intent" if current_action == "approve" else "revise"
     }
 
     graph_app.update_state(config, updates)
