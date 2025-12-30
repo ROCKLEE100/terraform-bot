@@ -88,3 +88,31 @@ def estimate_cost(cwd):
     except Exception as e:
         logger.error(f"Infracost failed: {e}")
         return f"Cost estimation failed: {str(e)}"
+
+def upload_directory_to_gcs(cwd, project_id, thread_id):
+    """Uploads the entire directory to a GCS bucket."""
+    bucket_name = f"terraform-bot-archives-{project_id}"
+    destination = f"gs://{bucket_name}/archives/{thread_id}/"
+    
+    try:
+        # 1. Create bucket if not exists
+        logger.info(f"Ensuring bucket {bucket_name} exists...")
+        # Try creating, ignore error if it exists (or check first)
+        # "gcloud storage buckets create" fails if exists. 
+        # "gcloud storage ls" to check.
+        try:
+            run_command(f"gcloud storage buckets describe gs://{bucket_name}", cwd)
+        except:
+            logger.info(f"Bucket {bucket_name} not found. Creating...")
+            run_command(f"gcloud storage buckets create gs://{bucket_name} --project={project_id} --location=us-central1", cwd)
+
+        # 2. Upload files
+        logger.info(f"Uploading files from {cwd} to {destination}...")
+        # Exclude .terraform folder and other temp files if needed, but user asked for "terraform folder"
+        # We'll upload everything for now, maybe exclude .git if it were a repo, but this is a temp dir.
+        run_command(f"gcloud storage cp -r {cwd}/* {destination}", cwd)
+        
+        return f"Successfully uploaded files to {destination}"
+    except Exception as e:
+        logger.error(f"GCS Upload failed: {e}")
+        return f"GCS Upload failed: {str(e)}"

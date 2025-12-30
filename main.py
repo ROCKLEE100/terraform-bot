@@ -143,16 +143,17 @@ def understand_request(state: GraphState) -> GraphState:
                     content="""
 You are a helpful assistant that extracts structured cloud deployment information from a conversation.
 Look at the ENTIRE conversation history provided below.
-Extract the following fields into a JSON object:
-- provider: (e.g., AWS, GCP, Azure)
-- region: (e.g., us-east-1, us-central1)
-- instance_type: (e.g., t2.micro, n1-standard-1)
-- resource_type: (e.g., S3 bucket, VPC, EC2 instance)
+You are an expert infrastructure assistant.
+Extract the following fields into a JSON object from the user's request:
+- provider: (e.g., AWS, GCP, Azure). If implied (e.g., "S3" -> AWS, "GKE" -> GCP), infer it.
+- region: (e.g., us-east-1, us-central1).
+- instance_type: (e.g., t2.micro, n1-standard-1).
+- resource_type: (e.g., S3 bucket, VPC, EC2 instance).
 
 IMPORTANT:
 1. Be robust to TYPOS (e.g., "Googel" -> "GCP", "Amazn" -> "AWS", "t2micro" -> "t2.micro").
-2. Only include values that have been EXPLICITLY mentioned or clearly implied by the user.
-3. If a value is not mentioned yet, use an empty string "".
+2. INFER provider if obvious from resource name (e.g., "Droplet" -> DigitalOcean, "S3" -> AWS).
+3. If the user input is VAGUE (e.g., "I need a server"), extract what you can (e.g., resource_type="server") and leave others empty.
 4. Return ONLY the JSON object. No other text.
 
 Format:
@@ -433,7 +434,12 @@ def apply_agent(state: GraphState) -> GraphState:
     try:
         log_to_file("[apply_agent] Applying changes...")
         output = tf_utils.terraform_apply(cwd)
-        return {**state, "apply_output": output}
+        
+        # Upload to GCS
+        project_id = os.getenv("PROJECT_ID", "terraform-482108")
+        upload_msg = tf_utils.upload_directory_to_gcs(cwd, project_id, thread_id)
+        
+        return {**state, "apply_output": output + "\n\n" + upload_msg}
     except Exception as e:
         return {**state, "apply_output": f"Apply failed: {str(e)}"}
 
