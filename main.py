@@ -586,23 +586,24 @@ def supervisor_node(state: GraphState) -> GraphState:
 graph = StateGraph(GraphState)
 
 # Add nodes
-# Add nodes
-graph.add_node("intent_classifier", intent_classifier)
-graph.add_node("consultant", consultant_agent)
-graph.add_node("understand_request", understand_request)
-graph.add_node("supervisor", supervisor_node)
-graph.add_node("missing_info", missing_info_agent)
-graph.add_node("ask_user_info", ask_user_info)
-graph.add_node("wait_for_input", wait_for_input)
-graph.add_node("generate_tf", generate_tf)
-graph.add_node("validate_tf", validate_tf)
-graph.add_node("security_scan", security_scan_agent)
-graph.add_node("validate_tf", validate_tf)
-graph.add_node("security_scan", security_scan_agent)
-graph.add_node("security_review", security_review_agent)
-graph.add_node("plan_agent", plan_agent)
-graph.add_node("cost_agent", cost_agent)
-graph.add_node("apply_agent", apply_agent)
+try:
+    graph.add_node("intent_classifier", intent_classifier)
+    graph.add_node("consultant", consultant_agent)
+    graph.add_node("understand_request", understand_request)
+    graph.add_node("supervisor", supervisor_node)
+    graph.add_node("missing_info", missing_info_agent)
+    graph.add_node("ask_user_info", ask_user_info)
+    graph.add_node("wait_for_input", wait_for_input)
+    graph.add_node("generate_tf", generate_tf)
+    graph.add_node("validate_tf", validate_tf)
+    graph.add_node("security_scan", security_scan_agent)
+    graph.add_node("security_review", security_review_agent)
+    graph.add_node("plan_agent", plan_agent)
+    graph.add_node("cost_agent", cost_agent)
+    graph.add_node("apply_agent", apply_agent)
+except ValueError as e:
+    print(f"[Graph Error] Node addition failed: {e}")
+
 
 graph.add_node("approve_tf", approve_tf)
 graph.add_node("revise_tf", revise_tf)
@@ -646,12 +647,10 @@ graph.add_conditional_edges(
         "generate": "generate_tf",
         "validate": "validate_tf",
         "security_scan": "security_scan",
-        "security_scan": "security_scan",
         "security_review": "security_review",
         "plan": "plan_agent",
         "cost": "cost_agent",
         "apply": "apply_agent",
-        "revise": "revise_tf",
         "revise": "revise_tf",
         "approve": "approve_tf",
         "end": END
