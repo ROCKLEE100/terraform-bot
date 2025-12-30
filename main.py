@@ -862,6 +862,46 @@ async def download_tf(thread_id: str):
         headers={"Content-Disposition": f"attachment; filename=terraform-{thread_id}.zip"}
     )
 
+@app.post("/chat/{thread_id}/message")
+async def send_message(thread_id: str, req: ChatRequest):
+    import threading
+    
+    config = {"configurable": {"thread_id": thread_id}}
+    state = graph_app.get_state(config)
+    
+    if not state.values:
+        raise HTTPException(status_code=404, detail="Thread not found")
+        
+    # Add user message
+    new_msg = HumanMessage(content=req.message)
+    
+    # Update state with new message and set next action to revise if we were approved/done
+    # If we are in the middle of something, this might be tricky, but usually we are waiting.
+    # If waiting for approval, this counts as a revision request.
+    
+    current_action = state.values.get("next_action")
+    updates = {
+        "messages": state.values["messages"] + [new_msg],
+        "approve_result": "revise" if current_action == "approve" else state.values.get("approve_result", ""),
+        # If we were done, we need to restart the cycle, likely to revise or generate
+        "next_action": "revise" # Force revision/re-evaluation
+    }
+
+    graph_app.update_state(config, updates)
+    
+    # Resume graph
+    def resume_graph():
+        try:
+            for event in graph_app.stream(None, config):
+                pass
+        except Exception as e:
+            print(f"Error in graph execution: {e}")
+    
+    thread = threading.Thread(target=resume_graph, daemon=True)
+    thread.start()
+        
+    return {"status": "message_received", "action": "revise"}
+
 @app.post("/chat/{thread_id}/approve")
 async def approve_chat(thread_id: str, req: ApproveRequest):
     import threading
@@ -875,7 +915,13 @@ async def approve_chat(thread_id: str, req: ApproveRequest):
     decision = "approved" if req.approved else "revise"
     
     # Update state
-    graph_app.update_state(config, {"approve_result": decision})
+    updates = {"approve_result": decision}
+    
+    # If feedback provided, add it to messages
+    if req.feedback:
+        updates["messages"] = state.values["messages"] + [HumanMessage(content=req.feedback)]
+        
+    graph_app.update_state(config, updates)
     
     # Resume graph in background thread
     def resume_graph():
