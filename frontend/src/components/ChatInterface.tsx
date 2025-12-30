@@ -116,8 +116,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
                 await axios.post(`${API_URL}/chat/${threadId}/missing_info`, { answer: userMsg });
                 await checkStatus();
             } else {
-                alert("Please refresh to start a new task.");
-                setLoading(false);
+                // Interactive chat / Revision
+                await axios.post(`${API_URL}/chat/${threadId}/message`, { message: userMsg });
+                await checkStatus();
             }
         } catch (err) {
             console.error("Error sending message:", err);
@@ -138,14 +139,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
     };
 
     const handleRevise = async () => {
-        if (!threadId) return;
-        setLoading(true);
-        try {
-            await axios.post(`${API_URL}/chat/${threadId}/approve`, { approved: false });
-            await checkStatus();
-        } catch (err) {
-            console.error("Error requesting revision:", err);
-            setLoading(false);
+        // Just focus input for now, or we could send a specific "revise" signal
+        // But the backend expects a message for revision context usually.
+        // For now, let's just tell the user to type.
+        const inputEl = document.querySelector('input[type="text"]') as HTMLInputElement;
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.placeholder = "Please describe the changes you want...";
         }
     };
 
@@ -312,11 +312,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
                         onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                         placeholder={!user ? "Please login to chat..." : chatState?.waiting_for_missing_info ? "Answer the question above..." : "Describe your infrastructure needs..."}
                         className="flex-1 bg-[#1e293b]/50 text-gray-100 rounded-2xl px-6 py-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 border border-white/5 placeholder-gray-500 transition-all shadow-inner hover:bg-[#1e293b]/80"
-                        disabled={!user || loading || (!!threadId && !chatState?.next_action.includes('end') && !chatState?.waiting_for_approval && !chatState?.waiting_for_missing_info && !chatState?.waiting_for_security_review)}
+                        disabled={!user || loading}
                     />
                     <button
                         onClick={handleSend}
-                        disabled={!user || loading || !input.trim() || (!!threadId && !chatState?.next_action.includes('end') && !chatState?.waiting_for_approval && !chatState?.waiting_for_missing_info && !chatState?.waiting_for_security_review)}
+                        disabled={!user || loading || !input.trim()}
                         className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-2xl px-6 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 active:scale-95 flex items-center justify-center"
                     >
                         <ArrowRight size={24} />
