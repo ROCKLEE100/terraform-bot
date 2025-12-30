@@ -22,4 +22,6 @@ COPY terraform_utils.py .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use shell form to allow variable expansion
+# Cloud Run sets PORT=8000 by default, so we use that as the default
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-keep-alive 300
