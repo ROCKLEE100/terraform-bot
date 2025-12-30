@@ -714,7 +714,8 @@ async def login():
     
     redirect_uri = f"{BACKEND_URL}/auth/callback"
     scope = "openid email profile"
-    url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope={scope}"
+    # Add prompt=select_account to force account chooser
+    url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&prompt=select_account"
     return RedirectResponse(url)
 
 @app.get("/auth/callback")
