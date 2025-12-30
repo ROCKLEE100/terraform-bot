@@ -854,7 +854,8 @@ async def start_chat(req: ChatRequest):
     # Run graph in background thread to avoid blocking
     def run_graph():
         try:
-            for event in graph_app.stream(initial_state, config):
+            run_config = {**config, "recursion_limit": 100}
+            for event in graph_app.stream(initial_state, run_config):
                 pass
         except Exception as e:
             print(f"Error in graph execution: {e}")
@@ -945,7 +946,8 @@ async def send_message(thread_id: str, req: ChatRequest):
     # Resume graph
     def resume_graph():
         try:
-            for event in graph_app.stream(None, config):
+            run_config = {**config, "recursion_limit": 100}
+            for event in graph_app.stream(None, run_config):
                 pass
         except Exception as e:
             print(f"Error in graph execution: {e}")
@@ -979,7 +981,8 @@ async def approve_chat(thread_id: str, req: ApproveRequest):
     # Resume graph in background thread
     def resume_graph():
         try:
-            for event in graph_app.stream(None, config):
+            run_config = {**config, "recursion_limit": 100}
+            for event in graph_app.stream(None, run_config):
                 pass
         except Exception as e:
             print(f"Error in graph execution: {e}")
@@ -1015,7 +1018,8 @@ async def answer_missing(thread_id: str, req: MissingInfoAnswer):
     # Resume graph execution in background thread
     def resume_graph():
         try:
-            for event in graph_app.stream(None, config):
+            run_config = {**config, "recursion_limit": 100}
+            for event in graph_app.stream(None, run_config):
                 pass
         except Exception as e:
             print(f"Error in graph execution: {e}")
@@ -1037,7 +1041,8 @@ async def security_decision(thread_id: str, req: SecurityDecision):
         "security_action": req.action
     })
 
-    for event in graph_app.stream(None, config):
+    run_config = {**config, "recursion_limit": 100}
+    for event in graph_app.stream(None, run_config):
         pass
 
     return {"status": "security decision applied"}
